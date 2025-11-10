@@ -1,0 +1,1457 @@
+--kňá
+for index, k in next, {'AutoShaman', 'AutoNewGame', 'AutoTimeLeft', 'PhysicalConsumables', 'AfkDeath', 'AutoScore', 'MortCommand'} do
+	tfm.exec['disable' .. k]()
+end
+
+--[[Settings]]--
+local main_community = "en"
+local debug = false
+
+--[[Enums]]--
+local enemy_id = {
+    souris_boss = 1,
+}
+
+local loop_id = {
+    fast = 1,
+    slow = 2,
+}
+
+local animation_id = {
+    idle = 1,
+    throw = 2,
+    jump = 3,
+    attack = 4,
+    angry = 5,
+    stunned = 6,
+    asleep = 7,
+}
+
+local global_animation_id = {
+    parry = 1,
+    player_heal = 2,
+    player_damage = 3,
+}
+
+--[[Translations]]--
+local translations = {
+    ["cs"] = {
+        "Vzdej se, cizinče! V cestě ti stojí velký *Souris_18f2!",
+        "Jsem vůdce naší skupiny, protože, narozdíl od ostatních sourisů, jsem se naučil mluvit.",
+        "Dej mi všechny své sýry a ušetřím tě.",
+        "...",
+        "Jak chceš, nechť tvá cesta skončí přímo tu, lakomče.",
+        "Tlačítkem C uděláš velký skok.\nTlačítkem X útočíš.\nPodržením tlačítka V se vyléčíš.",
+    },
+    ["en"] = {
+        "Surrender, stranger! The great *Souris_18f2 is standing in your way!",
+        "I am the leader of our group because, unlike the other souris, I have learned to speak.",
+        "Give me all your cheese and I'll spare you.",
+        "...",
+        "As you wish, may your journey end right here, miser.",
+        "Press the C button to make a long jump.\nPress the X button to attack.\nHold the V button to heal.",
+    },
+}
+
+local community = tfm.get.room.name:sub(1, 2)
+if tfm.get.room.name == "*Hvezdokupa" then
+    community = "en"--"cs"
+elseif translations[community] == nil then
+    community = main_community
+end
+for i,v in pairs(translations) do
+    if i ~= community then
+        v = nil
+    end
+end
+
+--[[Values]]--
+local ENEMY_ID = 1000
+local PROJECTILE_ID = 10000
+local BONUS_ID = 1000
+
+local player_list = {}
+
+local enemy_loop_list = {
+    [loop_id.fast] = {},
+    [loop_id.slow] = {},
+}
+local enemy_loop_list_size = {
+    [loop_id.fast] = 0,
+    [loop_id.slow] = 0,
+}
+local enemy_list = {}
+
+local enemies = {
+    [enemy_id.souris_boss] = {
+        spawn_function = function(enemy, enemy_data)
+            universalSpawn(enemy, animation_id.jump)
+            enemy_data.attack_timer = 5
+            enemy_data.ball_attack_timer = 0
+            enemy_data.jump_attack_timer = 0
+            enemy_data.anvil_attack_timer = 0
+            enemy_data.stunned_timer = 0
+            enemy_data.target = nil
+            enemy_data.monologue_texts = {
+                translations[community][1],
+                translations[community][2],
+                translations[community][3],
+                translations[community][4],
+                translations[community][5],
+            }
+            enemy_data.monologue_id = 0
+            enemy_data.monologue_timer = 10
+            if enemy_data.additional_info.skip_monologue == nil then
+                enemy_data.monologue_ended = false
+            else
+                enemy_data.monologue_ended = true
+                enemy_data.immortal = false
+                setSpecialMusic({{music = "tfmadv/musique/tfmadv_intro.mp3", volume = 100}})
+            end
+            tfm.exec.moveObject(enemy_data.hitbox_id, 0, 0, true, 5, 2, false)
+        end,
+        fast_update_function = function(enemy, enemy_data)
+            animationUpdate(enemy)
+        end,
+        slow_update_function = function(enemy, enemy_data)
+            if enemy_data.monologue_ended == false then
+                enemy_data.monologue_timer = enemy_data.monologue_timer - 1
+                if enemy_data.monologue_timer == 0 then
+                    enemy_data.monologue_timer = 12
+                    enemy_data.monologue_id = enemy_data.monologue_id + 1
+                    if enemy_data.monologue_id <= #enemy_data.monologue_texts then
+                        if enemy_data.monologue_id == 2 then
+                            enemy_data.facing_left = true
+                        end
+                        for pN in pairs(player_list) do
+                            textBox(pN, 1, enemy_data.x, enemy_data.y - 36, 150, enemy_data.monologue_texts[enemy_data.monologue_id], "*Souris_18f2", "ec1c49")
+                        end
+                    else
+                        enemy_data.monologue_ended = true
+                        enemy_data.immortal = false
+                        setSpecialMusic({{music = "tfmadv/musique/tfmadv_intro.mp3", volume = 100}})
+                        for pN in pairs(player_list) do
+                            if player_list[pN].text_boxes[1] ~= nil then
+                                removeTextBox(pN, 1)
+                            end
+                        end
+                    end
+                end
+            else
+                if enemy_data.stunned_timer == 0 then
+                    enemy_data.attack_timer = enemy_data.attack_timer - 1
+                    if enemy_data.attack_timer <= 0 then
+                        local nearest = returnNearestPlayer(enemy_data.x, enemy_data.y, enemy_data.area_x1 - 10, enemy_data.area_y1 - 10, enemy_data.area_x2 + 10, enemy_data.area_y2 + 10)
+                        if nearest == nil then
+                            addProjectileObject(14, "19a4e2f8b83.png", enemy_data.x, enemy_data.y, 10, 10, math.random(-5, 5), math.random(-5, -3), nil, false, false, 5)
+                            if enemy_data.fail_function ~= nil then
+                                enemy_data.fail_function()
+                            end
+                            removeEnemy(enemy)
+                            return
+                        end
+                        local r = math.random(1, 5)
+                        if r == 1 or r == 2 then
+                            local jump_target = enemy_data.area_x2 - 50
+                            enemy_data.facing_left = true
+                            if player_list[nearest].x > 400 then
+                                jump_target = enemy_data.area_x1 + 50
+                                enemy_data.facing_left = false
+                            end
+                            playAnimation(enemy, animation_id.jump)
+                            tfm.exec.moveObject(enemy_data.hitbox_id, 0, 0, true, (jump_target - enemy_data.x) * 0.016, -10, false)
+                            enemy_data.ball_attack_timer = 10
+                            if enemy_data.phase < 3 then
+                                enemy_data.attack_timer = 11
+                            else
+                                enemy_data.attack_timer = 7
+                            end
+                        elseif r == 3 or r == 4  then
+                            enemy_data.target = nearest
+                            local jump_target = player_list[enemy_data.target].x
+                            if jump_target - enemy_data.x > 0 then
+                                enemy_data.facing_left = false
+                            else
+                                enemy_data.facing_left = true
+                            end
+                            playAnimation(enemy, animation_id.jump)
+                            tfm.exec.moveObject(enemy_data.hitbox_id, 0, 0, true, (jump_target - enemy_data.x) * 0.016, -10, false)
+                            enemy_data.jump_attack_timer = 9
+                            if enemy_data.phase < 3 then
+                                enemy_data.attack_timer = 10
+                            else
+                                enemy_data.attack_timer = 8
+                            end
+                        elseif r == 5 then
+                            local direction = -1
+                            enemy_data.facing_left = true
+                            if player_list[nearest].x - enemy_data.x < 0 then
+                                direction = 1
+                                enemy_data.facing_left = false
+                            end
+                            tfm.exec.moveObject(enemy_data.hitbox_id, 0, 0, true, 7 * direction, -5, false)
+                            playAnimation(enemy, animation_id.angry)
+                            if enemy_data.phase < 3 then
+                                enemy_data.attack_timer = 11
+                                enemy_data.anvil_attack_timer = 2
+                            else
+                                enemy_data.attack_timer = 5
+                                enemy_data.anvil_attack_timer = 1
+                            end
+                        end
+                    end
+
+                    if enemy_data.ball_attack_timer > 0 then
+                        enemy_data.ball_attack_timer = enemy_data.ball_attack_timer - 1
+                        if enemy_data.ball_attack_timer == 6 or enemy_data.ball_attack_timer == 5 or enemy_data.ball_attack_timer == 4 or ((enemy_data.ball_attack_timer == 3 or enemy_data.ball_attack_timer == 2) and enemy_data.phase > 2) then
+                            playAnimation(enemy, animation_id.throw)
+                            local facing_modifier = (enemy_data.facing_left == true and -1 or 1)
+                            tfm.exec.playSound("transformice/son/invoc2.mp3", 75)
+                            myAddShamanObject(6, enemy_data.x + 15 * facing_modifier, enemy_data.y, math.random(5, 10) * facing_modifier, -math.random(3, 15), 6, "ball")
+                        end
+                    end
+                    if enemy_data.jump_attack_timer > 0 then
+                        enemy_data.jump_attack_timer = enemy_data.jump_attack_timer - 1
+                        if player_list[enemy_data.target] ~= nil then
+                            local distance = player_list[enemy_data.target].x - enemy_data.x
+                            local direction_modifier = (distance > 0 and 1 or -1)
+                            if enemy_data.jump_attack_timer < 2 then
+                                if math.abs(distance) > 40 then
+                                    tfm.exec.moveObject(enemy_data.hitbox_id, 0, 0, true, 9 * -direction_modifier, 4, false)
+                                end
+                                enemy_data.facing_left = (direction_modifier == 1)
+                            elseif enemy_data.jump_attack_timer < 5 then
+                                if math.abs(distance) > 40 then
+                                    tfm.exec.moveObject(enemy_data.hitbox_id, 0, 0, true, (enemy_data.phase < 3 and 6 or 9) * direction_modifier, 4, false)
+                                end
+                                enemy_data.facing_left = (direction_modifier == -1)
+                            end
+                        else
+                            enemy_data.jump_attack_timer = 0
+                        end
+                        if enemy_data.jump_attack_timer == 4 or enemy_data.jump_attack_timer == 3 or enemy_data.jump_attack_timer == 2 then
+                            tfm.exec.playSound("deadmaze/x_slash_2.mp3", 100)
+                            enemyAttack(enemy, enemy_data, enemy_data.x, enemy_data.y, 50, -50, -5, -55, 85, 55)
+                        end
+                    end
+                    if enemy_data.anvil_attack_timer > 0 then
+                        enemy_data.anvil_attack_timer = enemy_data.anvil_attack_timer - 1
+                        if enemy_data.anvil_attack_timer == 0 then
+                            for i = 1, enemy_data.phase <= 2 and 5 or 7 do
+                                local x = math.random(enemy_data.area_x1 + 10, enemy_data.area_x2 - 10)
+                                addProjectileObject(14, "18f57d3c001.png", x, math.random(-600, -510), 40, 16, 0, enemy_data.phase < 3 and 1 or 4, nil, false, true, 7, "anvil")
+                                addProjectileObject(14, "19a5038d6ef.png", x, -85, 10, 10, 0, 1, 0.5, false, false, 4)
+                            end
+                        end
+                    end
+                end
+
+                if enemy_data.stunned_timer > 0 then
+                    enemy_data.stunned_timer = enemy_data.stunned_timer - 1
+                    if enemy_data.stunned_timer == 0 then
+                        tfm.exec.moveObject(enemy_data.hitbox_id, 0, 0, true, math.random(-2, 2), -6, false)
+                        playAnimation(enemy, animation_id.jump)
+                    end
+                end
+            end
+        end,
+        hp = 600,
+        stun = {500, 300, 100},
+        immortal = true,
+        dead_image = "19a4f42fa16.png",
+        animations = {
+            [animation_id.idle] = {"19a43b40d2c.png", "19a43b47039.png", "19a43b4887a.png", "19a43b4a059.png", "19a43b4b6c0.png", "19a43b4e811.png", "19a43b4fea3.png", "19a43b51601.png", "19a43b52a8a.png", x = 0, y = -4},
+            [animation_id.throw] = {"19a4e283356.png", "19a4e2848a0.png", "19a4e285e6f.png", "19a4e287437.png", "19a4e2889e8.png", "19a4e289f98.png", x = 0, y = -4, next_animation = animation_id.idle},
+            [animation_id.jump] = {"19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", "19a4e2f8b83.png", x = 0, y = -6, next_animation = animation_id.idle},
+            [animation_id.attack] = {"19a4e3c0800.png", "19a4e3c3186.png", "19a4e3c48b4.png", "19a4e3c614b.png", "19a4e3c771c.png", x = 0, y = -6, next_animation = animation_id.idle},
+            [animation_id.angry] = {"19a4ee2c6c4.png", "19a4ee2dc8d.png", "19a4ee2f367.png", "19a4ee308fd.png", "19a4ee2c6c4.png", "19a4ee2dc8d.png", "19a4ee2f367.png", "19a4ee308fd.png", "19a4ee2c6c4.png", "19a4ee2dc8d.png", "19a4ee2f367.png", "19a4ee308fd.png", "19a4ee2c6c4.png", "19a4ee2dc8d.png", "19a4ee2f367.png", "19a4ee308fd.png", x = 2, y = -3, next_animation = animation_id.idle},
+            [animation_id.stunned] = {"19a4f221c5e.png", "19a4f223227.png", "19a4f22465d.png", "19a4f225b17.png", "19a4f227065.png", x = 0, y = 1, next_animation = animation_id.asleep},
+            [animation_id.asleep] = {"19a4f215389.png", "19a4f216905.png", "19a4f217db7.png", "19a4f21916b.png", "19a4f21a7dd.png", "19a4f21bbc5.png", "19a4f21e205.png", "19a4f21f876.png", x = 21, y = 8},
+        },
+    },
+}
+
+local current_map = nil
+local main_music = {}
+local special_music = {}
+local is_special_music = false
+local maps = {
+    [1] = {
+        XML = '<C><P L="2400" MEDATA=";;;;-0;0:::1-"/><Z><S><S T="12" X="896" Y="-103" L="2000" H="209" P="0,0,0.3,0.2,0,0,0,0" o="6A7495" N=""/><S T="12" X="-103" Y="210" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2504" Y="233" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2144" Y="-103" L="724" H="209" P="0,0,0.3,0.2,180,0,0,0" o="6A7495" N=""/><S T="12" X="2157" Y="375" L="477" H="142" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2072" Y="323" L="303" H="102" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2269" Y="138" L="295" H="64" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1831" Y="106" L="356" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1730" Y="402" L="447" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1554" Y="330" L="96" H="163" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1582" Y="256" L="150" H="18" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1610" Y="267" L="41" H="19" P="0,0,0.3,0.2,-30,0,0,0" o="324650" m=""/><S T="12" X="1542" Y="90" L="67" H="198" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1376" Y="334" L="35" H="168" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1147" Y="349" L="137" H="126" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1109" Y="76" L="60" H="174" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="1231" Y="5" L="331" H="175" P="0,0,0,0,-30,0,0,0" o="324650" m=""/><S T="12" X="1896" Y="347" L="60" H="68" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="239" Y="132" L="87" H="279" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="90" Y="103" L="361" H="84" P="0,0,0.3,0.2,25,0,0,0" o="324650" m=""/><S T="12" X="104" Y="52" L="259" H="174" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="536" Y="409" L="1117" H="38" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1557" Y="199" L="37" H="34" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/></S><D><DS X="2362" Y="285"/></D><O/><L/></Z></C>',
+        bg = {{image = "19a537970ea.png", x = 0, y = 0}},
+        fg = {{image = "19a53798bb4.png", x = 0, y = 0}},
+        fast_update_area = {x = 282, y = 0, sx = 800, sy = 400},
+        start_function = function()
+            current_map.help_timer = 30
+            current_map.bossfight_status = 0
+            current_map.bossfight_timer = 0
+            current_map.door_timer = 0
+            current_map.first_bossfight = true
+            current_map.door1_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 0, 0, nil, 1, 1, 0, 0)
+            current_map.door2_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 0, 0, nil, 1, 1, 0, 0)
+            tfm.exec.addPhysicObject(1, 239, 331, {type = 14, restitution = 0.2, friction = 0.3, width = 87, height = 147})
+        end,
+        player_joined_function = function(pN)
+            if current_map.bossfight_status == 0 or current_map.bossfight_status == 1 then
+                tfm.exec.addPhysicObject(1, 239, 331, {type = 14, restitution = 0.2, friction = 0.3, width = 87, height = 147})
+            end
+            if current_map.bossfight_status == 1 then
+                tfm.exec.addPhysicObject(2, 1109, 227, {type = 14, restitution = 0, friction = 0, width = 60, height = 143})
+                tfm.exec.removeImage(current_map.door1_image)
+                tfm.exec.removeImage(current_map.door2_image)
+                current_map.door1_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 298, 260, nil, -1)
+                current_map.door2_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 1070, 158, nil)
+            end
+        end,
+        loop_function = function()
+            for pN,v in pairs(player_list) do
+                if current_map.bossfight_status == 0 then
+                    if tfm.get.room.playerList[pN].isDead == false and v.start_timer == 0 then
+                        if v.x < 460 then
+                            for name in pairs(player_list) do
+                                if name ~= pN then
+                                    tfm.exec.movePlayer(name, 460, 376)
+                                end
+                            end
+                            tfm.exec.addPhysicObject(2, 1109, 227, {type = 14, restitution = 0, friction = 0, width = 60, height = 143})
+                            tfm.exec.removeImage(current_map.door1_image)
+                            tfm.exec.removeImage(current_map.door2_image)
+                            current_map.door1_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 298, 260, nil, -1)
+                            current_map.door2_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 1070, 158, nil)
+                            for i = 1, 10 do
+                                tfm.exec.displayParticle(3, 251 + math.random(-40, 40), 334 + math.random(-70, 70), math.random(-15, 15) * 0.01, math.random(-15, 15) * 0.01, 0, 0.3)
+                                tfm.exec.displayParticle(3, 1107 + math.random(-40, 40), 226 + math.random(-70, 70), math.random(-15, 15) * 0.01, math.random(-15, 15) * 0.01, 0, 0.3)
+                            end
+                            tfm.exec.playSound("transformice/son/invoc.mp3", 100)
+                            current_map.bossfight_status = 1
+                            current_map.bossfight_timer = 5
+                            break
+                        end
+                    end
+                end
+            end
+            if current_map.bossfight_status > 0 and current_map.bossfight_timer > 0 then
+                current_map.bossfight_timer = current_map.bossfight_timer - 1
+                if current_map.bossfight_timer == 0 then
+                    setSpecialMusic({{music = "deadmaze/x_amb_desert.mp3", volume = 100}, {music = "lua/music_event/individual/basses.mp3", volume = 50}})
+                    local kill_function = function()
+                        current_map.door_timer = 5
+                        tfm.exec.playSound("tfmadv/soins6.mp3", 100)
+                    end
+                    local fail_function = function()
+                        tfm.exec.removeImage(current_map.door1_image)
+                        tfm.exec.removeImage(current_map.door2_image)
+                        current_map.door1_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 0, 0, nil, 1, 1, 0, 0)
+                        current_map.door2_image = tfm.exec.addImage("19a53eb43c2.png", "_1", 0, 0, nil, 1, 1, 0, 0)
+                        tfm.exec.removePhysicObject(2)
+                        current_map.bossfight_status = 0
+                        setSpecialMusic(nil)
+                    end
+                    summonEnemy(enemy_id.souris_boss, 471, 23, current_map.first_bossfight == true and {} or {skip_monologue = true}, 282, 0, 1080, 400, kill_function, fail_function)
+                    current_map.first_bossfight = false
+                end
+            end
+            if current_map.door_timer > 0 then
+                current_map.door_timer = current_map.door_timer - 1
+                if current_map.door_timer == 0 then
+                    current_map.bossfight_status = 2
+                    tfm.exec.removeImage(current_map.door1_image)
+                    tfm.exec.removeImage(current_map.door2_image)
+                    tfm.exec.removePhysicObject(1)
+                    tfm.exec.removePhysicObject(2)
+                    for i = 1, 10 do
+                        tfm.exec.displayParticle(3, 251 + math.random(-40, 40), 334 + math.random(-70, 70), math.random(-15, 15) * 0.01, math.random(-15, 15) * 0.01, 0, 0.3)
+                        tfm.exec.displayParticle(3, 1107 + math.random(-40, 40), 226 + math.random(-70, 70), math.random(-15, 15) * 0.01, math.random(-15, 15) * 0.01, 0, 0.3)
+                    end
+                    setSpecialMusic(nil)
+                end
+            end
+            if current_map.help_timer > 0 then
+                current_map.help_timer = current_map.help_timer - 1
+                if current_map.help_timer == 0 then
+                    for pN,v in pairs(player_list) do
+                        if v.x > 1595 then
+                            ui.addTextArea(2, "<p align='center'><D>"..translations[community][6], pN, 1676, 252, 200, nil, 0x000001, 0x000001, 0.45, false)
+                        end
+                    end
+                end
+            end
+        end,
+    },
+}
+
+local shaman_object_list = {}
+local object_projectile_list = {}
+
+local global_animation_list = {}
+local global_animations = {
+    [global_animation_id.parry] = {"182cf486fcd.png", "182cf488aa7.png", "182cf48a521.png", "182cf48c0f3.png"},
+    [global_animation_id.player_heal] = {"19a4fa837d3.png", "19a4fa84d85.png", "19a4fa863bb.png", "19a4fa87c8b.png", "19a4fa8aa3b.png"},
+    [global_animation_id.player_damage] = {"19a4fa863bb.png", "19a4fa84d85.png", "19a4fa8eaf9.png", "19a4fa900ec.png"},
+}
+
+local mana_images = {"19a4f849672.png", "19a4f83606b.png", "19a4f83792a.png", "19a4f839003.png", "19a4f83a621.png", "19a4f83bb99.png", "19a4f83d000.png", "19a4f83e47a.png", "19a4f83f8e2.png", "19a4f840c81.png", "19a4f842169.png", "19a4f8436e2.png", "19a4f844ce3.png"}
+
+local updater = nil
+local next_updater_check = 0
+local fps = 0
+local loop_bonuses = {}
+local current_loop_slowdown = 0
+local update_area = {
+    x = 0,
+    y = 0,
+    size_x = 0,
+    size_y = 0,
+    slowdown = 0,
+}
+
+--[[TFM Functions]]--
+function eventNewPlayer(pN)
+    player_list[pN] = {
+        text_box_id = 10000, -- 10 000 až 10 999 id pro texty NPC
+        text_boxes = {},
+        hp = 7,
+        max_hp = 7,
+        mana = 0,
+        max_mana = 12,
+        mana_image = tfm.exec.addImage("18683a5366c.png", "?1", 0, 0, nil, 1, 1, 0, 0),
+        health_images = {},
+        facing_left = false,
+        facing_up = false,
+        facing_down = false,
+        x = 0,
+        y = 0,
+        next_attack_timer = 0,
+        last_parry_defense = {time = 0, direction = 1},
+        freeze_timer = 0,
+        dash_timer = 0,
+        focus_timer = 0,
+        focus = false,
+        last_damage = 0,
+        respawning_timer = 0,
+        respawning_image = nil,
+        start_timer = 3,
+    }
+
+    for _,k in pairs({0, 1, 2, 3, 86, 67, 88}) do
+        tfm.exec.bindKeyboard(pN, k, true, true)
+    end
+    for _,k in pairs({1, 3, 86}) do
+        tfm.exec.bindKeyboard(pN, k, false, true)
+    end
+
+    loadEnemyImages(pN)
+    updateMap(pN)
+    playerRespawn(pN)
+    myPlayMusic(pN)
+    tfm.exec.addImage("19a5021cb06.png", ":1", 2, 23, pN, 0.85, 0.85)
+end
+
+function eventPlayerLeft(pN)
+    player_list[pN] = nil
+    newUpdaterIfNeeded(pN)
+end
+
+function eventPlayerDied(pN)
+    if player_list[pN] ~= nil then
+        startRespawning(pN)
+        newUpdaterIfNeeded(pN)
+    end
+end
+
+function eventPlayerWon(pN)
+    newUpdaterIfNeeded(pN)
+end
+
+function eventLoop()
+    for pN,v in pairs(player_list) do
+        playerLoop(pN, v)
+        playerPositionLoop(pN)
+    end
+    for enemy,v in pairs(enemy_list) do
+        if v.hitbox_id ~= nil then
+            enemyPositionLoop(enemy)
+        end
+    end
+    enemySlowLoop()
+    shamanObjectLoop()
+    projectileObjectLoop()
+    mapLoop()
+    setUpdaterLoop()
+    musicLoop()
+    if debug == true then
+        fpsLoop()
+    end
+end
+
+function eventKeyboard(pN, key, down, x, y, vx, vy)
+    if tfm.get.room.playerList[pN].isDead == false then
+        if key == 0 then
+            player_list[pN].facing_left = true
+            stopPlayerFocus(pN)
+        elseif key == 2 then
+            player_list[pN].facing_left = false
+            stopPlayerFocus(pN)
+        elseif key == 1 then
+            if down == true and player_list[pN].facing_down == true then
+                player_list[pN].facing_down = false
+            end
+            player_list[pN].facing_up = down
+            stopPlayerFocus(pN)
+        elseif key == 3 then
+            if down == true and player_list[pN].facing_up == true then
+                player_list[pN].facing_up = false
+            end
+            player_list[pN].facing_down = down
+            stopPlayerFocus(pN)
+        elseif key == 67 then
+            if player_list[pN].dash_timer == 0 then
+                playerDash(pN, x, y)
+            end
+            stopPlayerFocus(pN)
+        elseif key == 86 then
+            if player_list[pN].mana > 0 then
+                if down == true then
+                    player_list[pN].focus = true
+                    focusUpdate(pN)
+                    tfm.exec.playEmote(pN, 5)
+                else
+                    stopPlayerFocus(pN)
+                end
+            end
+        elseif key == 88 then
+            playerAttack(pN, x, y)
+            stopPlayerFocus(pN)
+        end
+    end
+end
+
+function eventPlayerBonusGrabbed(pN, bonus_id)
+    local bonus_data = loop_bonuses[bonus_id]
+    if bonus_id > 999 and bonus_data ~= nil then
+        tfm.exec.addBonus(0, bonus_data.x, bonus_data.y, bonus_id, nil, debug, pN)
+        current_loop_slowdown = current_loop_slowdown + 1
+        if current_loop_slowdown == update_area.slowdown then
+            current_loop_slowdown = 0
+            fps = fps + 1
+            enemyFastLoop()
+            updateGlobalAnimations()
+        end
+    end
+end
+
+function eventContactListener(pN, id, contactInfos)
+    if shaman_object_list[id] ~= nil then
+        local direction_modifier = (contactInfos.contactX < contactInfos.playerX) and 1 or -1
+        if shaman_object_list[id].event == "ball" then
+            shaman_object_list[id] = nil
+            tfm.exec.removeObject(id)
+            tfm.exec.playSound("bouboum/x_explosion_2.mp3", 100, contactInfos.contactX, contactInfos.contactY)
+            for i = 1, 6 do
+                tfm.exec.displayParticle(21, contactInfos.contactX, contactInfos.contactY, math.random(150, 650) * 0.01 * direction_modifier, math.random(-600, -200) * 0.01, 0, 0.4)
+                tfm.exec.displayParticle(2, contactInfos.contactX, contactInfos.contactY, math.random(150, 650) * 0.01 * direction_modifier, math.random(-600, -200) * 0.01, 0, 0.4)
+            end
+            hitPlayer(pN, 1)
+            tfm.exec.playSound("transformice/son/invoc2.mp3", 100, nil, nil, pN)
+        end
+    elseif object_projectile_list[id] ~= nil then
+        if object_projectile_list[id].event == "anvil" then
+            object_projectile_list[id] = nil
+            tfm.exec.removePhysicObject(id)
+            for i = 1, 6 do
+                tfm.exec.displayParticle(9, contactInfos.contactX, contactInfos.contactY, math.random(-150, 150) * 0.01, math.random(-60, -20) * 0.01, 0, 0.4)
+                tfm.exec.displayParticle(4, contactInfos.contactX, contactInfos.contactY, math.random(150, 650) * 0.01, math.random(-60, -20) * 0.01, 0, 0.4)
+            end
+            hitPlayer(pN, 1)
+            tfm.exec.playSound("deadmaze/combat/blocage1.mp3", 100, nil, nil, pN)
+        end
+    end
+end
+
+function eventNewGame()
+    if updater ~= nil then
+        addUpdaterBonuses(update_area.x, update_area.y, update_area.size_x, update_area.size_y)
+    end
+    for pN,v in pairs(player_list) do
+        v.start_timer = 3
+    end
+end
+
+--[[My Functions]]--
+function summonEnemy(enemy_type, x, y, additional_info, area_x1, area_y1, area_x2, area_y2, kill_function, fail_function)
+    if additional_info == nil then
+        additional_info = {}
+    end
+    local enemy_data = enemies[enemy_type]
+    enemy_list[ENEMY_ID] = {
+        enemy_type = enemy_type,
+        x = x,
+        y = y,
+        area_x1 = area_x1,
+        area_x2 = area_x2,
+        area_y1 = area_y1,
+        area_y2 = area_y2,
+        hp = enemy_data.hp,
+        stun = shallowcopy(enemy_data.stun),
+        phase = 1,
+        hitbox_id = nil,
+        fast_update_function = enemy_data.fast_update_function,
+        slow_update_function = enemy_data.slow_update_function,
+        animation = 0,
+        animation_img = nil,
+        animation_frame = 0,
+        animation_data = nil,
+        facing_left = false,
+        last_parry_defense = {time = 0, direction = 1},
+        immortal = immortal,
+        kill_function = kill_function,
+        fail_function = fail_function,
+        additional_info = shallowcopy(additional_info),
+    }
+    if enemy_data.fast_update_function ~= nil then
+        table.insert(enemy_loop_list[loop_id.fast], ENEMY_ID)
+        enemy_loop_list_size[loop_id.fast] = enemy_loop_list_size[loop_id.fast] + 1
+    end
+    if enemy_data.slow_update_function ~= nil then
+        table.insert(enemy_loop_list[loop_id.slow], ENEMY_ID)
+        enemy_loop_list_size[loop_id.slow] = enemy_loop_list_size[loop_id.slow] + 1
+    end
+
+    enemy_data.spawn_function(ENEMY_ID, enemy_list[ENEMY_ID])
+
+    ENEMY_ID = ENEMY_ID + 1
+end
+
+function removeEnemy(enemy)
+    for _,k in pairs({loop_id.fast, loop_id.slow}) do
+        for i,v in pairs(enemy_loop_list[k]) do
+            if v == enemy then
+                table.remove(enemy_loop_list[k], i)
+                enemy_loop_list_size[k] = enemy_loop_list_size[k] - 1
+                break
+            end
+        end
+    end
+    if enemy_list[enemy].hitbox_id ~= nil then
+        tfm.exec.removeObject(enemy_list[enemy].hitbox_id)
+    end
+    enemy_list[enemy] = nil
+end
+
+function universalSpawn(enemy, animation)
+    setHitbox(enemy)
+    playAnimation(enemy, animation)
+end
+
+function setHitbox(enemy)
+    enemy_list[enemy].hitbox_id = tfm.exec.addShamanObject(6300, enemy_list[enemy].x, enemy_list[enemy].y)
+end
+
+function playAnimation(enemy, animation)
+    enemy_list[enemy].animation_frame = 0
+    enemy_list[enemy].animation = animation
+    enemy_list[enemy].animation_img = tfm.exec.addImage("18683a5366c.png", "?1", 0, 0, nil, 1, 1, 0, 0)
+    enemy_list[enemy].animation_data = enemies[enemy_list[enemy].enemy_type].animations[animation]
+    enemy_list[enemy].animation_size = #enemy_list[enemy].animation_data
+    animationUpdate(enemy)
+end
+
+function removeAnimation(enemy)
+    enemy_list[enemy].animation = 0
+    tfm.exec.removeImage(enemy_list[enemy].animation_img)
+end
+
+function animationUpdate(enemy)
+    local enemy_data = enemy_list[enemy]
+    if enemy_data.animation ~= 0 then
+        local animation_data = enemy_data.animation_data
+        enemy_list[enemy].animation_frame = enemy_list[enemy].animation_frame + 1
+        if enemy_list[enemy].animation_frame > enemy_list[enemy].animation_size then
+            if animation_data.next_animation ~= nil then
+                removeAnimation(enemy)
+                playAnimation(enemy, animation_data.next_animation)
+                return
+            end
+            enemy_list[enemy].animation_frame = 1
+        end
+        tfm.exec.removeImage(enemy_list[enemy].animation_img)
+        local facing_modifier = enemy_data.facing_left == true and -1 or 1
+        if enemy_data.hitbox_id ~= nil then
+            enemy_list[enemy].animation_img = tfm.exec.addImage(animation_data[enemy_list[enemy].animation_frame], "#"..enemy_data.hitbox_id, animation_data.x * facing_modifier, animation_data.y, nil, facing_modifier, 1, 0, 1, 0.5 * facing_modifier, 0.5)
+        else
+            enemy_list[enemy].animation_img = tfm.exec.addImage(animation_data[enemy_list[enemy].animation_frame], "_1", enemy_data.x + animation_data.x * facing_modifier, enemy_data.y + animation_data.y, nil, facing_modifier, 1, 0, 1, 0.5 * facing_modifier, 0.5)
+        end
+    end
+end
+
+function loadEnemyImages(pN)
+    for _,v in pairs(enemies) do
+        for _,k in pairs(v.animations) do
+            for _,j in ipairs(k) do
+                tfm.exec.removeImage(tfm.exec.addImage(j, "?1", 0, 0, pN, 1, 1, 0, 0), true)
+            end
+        end
+    end
+end
+
+function enemySlowLoop()
+    for i = enemy_loop_list_size[loop_id.slow], 1, -1 do
+        local enemy = enemy_loop_list[loop_id.slow][i]
+        enemy_list[enemy].slow_update_function(enemy, enemy_list[enemy])
+    end
+end
+
+function enemyFastLoop()
+    for i = enemy_loop_list_size[loop_id.fast], 1, -1 do
+        local enemy = enemy_loop_list[loop_id.fast][i]
+        enemy_list[enemy].fast_update_function(enemy, enemy_list[enemy])
+    end
+end
+
+function returnEnemiesInBox(x1, y1, x2, y2)
+    if x1 > x2 then
+        local t = x1
+        x1 = x2
+        x2 = t
+    end
+    if y1 > y2 then
+        local t = y1
+        y1 = y2
+        y2 = t
+    end
+    local near = {}
+    for enemy,v in pairs(enemy_list) do
+        if v.immortal == false and v.x >= x1 and v.x <= x2 and v.y >= y1 and v.y <= y2 then
+            if v.last_parry_defense.time > os.time() then
+                enemyParry(enemy)
+            else
+                near[#near + 1] = enemy
+            end
+        end
+    end
+    return near
+end
+
+function returnPlayersInBox(x1, y1, x2, y2)
+    if x1 > x2 then
+        local t = x1
+        x1 = x2
+        x2 = t
+    end
+    if y1 > y2 then
+        local t = y1
+        y1 = y2
+        y2 = t
+    end
+    local near = {}
+    for pN,v in pairs(player_list) do
+        if tfm.get.room.playerList[pN].isDead == false and v.x >= x1 and v.x <= x2 and v.y >= y1 and v.y <= y2 then
+            if v.last_parry_defense.time > os.time() then
+                playerParry(pN)
+            else
+                near[#near + 1] = pN
+            end
+        end
+    end
+    return near
+end
+
+function playerParry(pN)
+    player_list[pN].last_parry_defense.time = 0
+    tfm.exec.removeImage(tfm.exec.addImage("182cf80c701.png", ":1", 0, 0, pN), true)
+    local x = player_list[pN].x + 30 * player_list[pN].last_parry_defense.direction
+    local y = player_list[pN].y
+    addGlobalAnimation(x, y, global_animation_id.parry)
+    tfm.exec.displayParticle(10, x, y)
+    for i = 1, 3 do
+        tfm.exec.displayParticle(4, x, y, math.random(-40, 40) * 0.1, math.random(-90, -10) * 0.1, 0, 0.5)
+    end
+    for i = 1, 5 do
+        tfm.exec.displayParticle(0, x, y, math.random(-30, 30) * 0.1, math.random(-40, -10) * 0.1, 0, 0.5)
+    end
+end
+
+function enemyParry(enemy)
+    enemy_list[enemy].last_parry_defense.time = 0
+    local x = enemy_list[enemy].x + 30 * enemy_list[enemy].last_parry_defense.direction
+    local y = enemy_list[enemy].y
+    addGlobalAnimation(x, y, global_animation_id.parry)
+    tfm.exec.displayParticle(10, x, y)
+    for i = 1, 3 do
+        tfm.exec.displayParticle(4, x, y, math.random(-40, 40) * 0.1, math.random(-90, -10) * 0.1, 0, 0.5)
+    end
+    for i = 1, 5 do
+        tfm.exec.displayParticle(0, x, y, math.random(-30, 30) * 0.1, math.random(-40, -10) * 0.1, 0, 0.5)
+    end
+end
+
+function playerAttack(pN, x, y, os_time)
+    local os_time = os.time()
+    if player_list[pN].next_attack_timer < os_time then
+        player_list[pN].next_attack_timer = os_time + 450
+        tfm.exec.playSound("tfmadv/slash.mp3", 100)
+        tfm.exec.playEmote(pN, 14)
+        local facing_modifier = player_list[pN].facing_left == true and -1 or 1
+        local pulse_x = 0
+        local pulse_y = 0
+        local hitted_enemies = {}
+        player_list[pN].last_parry_defense = {time = os_time + 100, direction = facing_modifier}
+        if player_list[pN].facing_up == true then
+            tfm.exec.removeImage(tfm.exec.addImage("17ed0d43d61.png", "$"..pN, 0, -40, nil, facing_modifier), true)
+            hitted_enemies = returnEnemiesInBox(x - 5 * facing_modifier, y - 85, x + 45 * facing_modifier, y + 55)
+            pulse_x = 2 * facing_modifier
+            pulse_y = -8
+        elseif player_list[pN].facing_down == true then
+            tfm.exec.removeImage(tfm.exec.addImage("17ed0d43d61.png", "$"..pN, 0, 40, nil, facing_modifier, -1), true)
+            hitted_enemies = returnEnemiesInBox(x - 5 * facing_modifier, y - 55, x + 45 * facing_modifier, y + 85)
+            pulse_x = 2 * facing_modifier
+            pulse_y = 8
+        else
+            tfm.exec.removeImage(tfm.exec.addImage("17eca70ce37.png", "$"..pN, 0, -15, nil, facing_modifier), true)
+            hitted_enemies = returnEnemiesInBox(x - 5 * facing_modifier, y - 55, x + 85 * facing_modifier, y + 55)
+            pulse_x = 5 * facing_modifier
+            pulse_y = -5
+        end
+        if #hitted_enemies > 0 then
+            for _,v in pairs(hitted_enemies) do
+                local enemy_data = enemy_list[v]
+                local id = enemy_data.hitbox_id
+                hitEnemy(v, 5, pN)
+                givePlayerMana(pN, 1)
+                if id ~= nil then
+                    tfm.exec.moveObject(id, 0, 0, true, pulse_x, pulse_y, false)
+                end
+                local particle_x = enemy_data.x
+                local particle_y = enemy_data.y
+                for i = 1, 3 do
+                    tfm.exec.displayParticle(29, particle_x, particle_y, math.random(1, 3) * facing_modifier, math.random(-7, -1), 0, 0.5)
+                    tfm.exec.displayParticle(4, particle_x, particle_y + math.random(-15, 15), math.random(1, 3) * facing_modifier, 0, -0.01 * facing_modifier)
+                end
+            end
+        end
+    end
+end
+
+function hitEnemy(enemy, damage, attacker)
+    tfm.exec.playSound("tfmadv/tampon.mp3", 50, nil, nil, attacker)
+    enemy_list[enemy].hp = enemy_list[enemy].hp - damage
+    if enemy_list[enemy].hp <= 0 then
+        particle_x = enemy_list[enemy].x
+        particle_y = enemy_list[enemy].y
+        for i = 1, 5 do
+            tfm.exec.displayParticle(3, particle_x, particle_y, math.random(-3, 3), math.random(-7, -1), 0, 0.5)
+            tfm.exec.displayParticle(4, particle_x, particle_y, math.random(-3, 3), math.random(-7, -1), 0, 0.5)
+        end
+        addProjectileObject(14, enemies[enemy_list[enemy].enemy_type].dead_image, particle_x, particle_y, 10, 10, math.random(-5, 5), math.random(-5, -3), nil, false, false, 5)
+        if enemy_list[enemy].kill_function ~= nil then
+            enemy_list[enemy].kill_function()
+        end
+        removeEnemy(enemy)
+        return
+    end
+
+    if enemy_list[enemy].stunned_timer > 1 then
+        enemy_list[enemy].stunned_timer = enemy_list[enemy].stunned_timer - 3
+        if enemy_list[enemy].stunned_timer < 1 then
+            enemy_list[enemy].stunned_timer = 1
+        end
+    end
+
+    local stunned = false
+    while enemy_list[enemy].stun[1] ~= nil and enemy_list[enemy].hp < enemy_list[enemy].stun[1] do
+        table.remove(enemy_list[enemy].stun, 1)
+        enemy_list[enemy].phase = enemy_list[enemy].phase + 1
+        stunned = true
+    end
+    if stunned == true then
+        enemy_list[enemy].stunned_timer = 12
+        playAnimation(enemy, animation_id.stunned)
+    end
+end
+
+function enemyAttack(enemy, enemy_data, x, y, pulse_x, pulse_y, box_x1_mod, box_y1_mod, box_x2_mod, box_y2_mod)
+    playAnimation(enemy, animation_id.attack)
+    local facing_modifier = enemy_data.facing_left == true and -1 or 1
+    pulse_x = pulse_x * facing_modifier
+    local hitted_players = {}
+    enemy_data.last_parry_defense = {time = os.time() + 100, direction = facing_modifier}
+    hitted_players = returnPlayersInBox(x + box_x1_mod * facing_modifier, y + box_y1_mod, x + box_x2_mod * facing_modifier, y + box_y2_mod)
+    if #hitted_players > 0 then
+        for _,v in pairs(hitted_players) do
+            local player_data = player_list[v]
+            tfm.exec.movePlayer(v, 0, 0, true, pulse_x, pulse_y, false)
+            hitPlayer(v, 1)
+            local particle_x = player_data.x
+            local particle_y = player_data.y
+            for i = 1, 3 do
+                tfm.exec.displayParticle(29, particle_x, particle_y, math.random(1, 3) * facing_modifier, math.random(-7, -1), 0, 0.5)
+                tfm.exec.displayParticle(4, particle_x, particle_y + math.random(-15, 15), math.random(1, 3) * facing_modifier, 0, -0.01 * facing_modifier)
+            end
+        end
+    end
+end
+
+function hitPlayer(pN, damage)
+    if player_list[pN].last_damage < os.time() then
+        local sounds = {"deadmaze/combat/griffe1.mp3", "deadmaze/combat/griffe2.mp3", "deadmaze/combat/griffe3.mp3", "deadmaze/combat/griffe4.mp3"}
+        tfm.exec.playSound(sounds[math.random(#sounds)], 100, nil, nil, pN)
+        player_list[pN].last_damage = os.time() + 500
+        player_list[pN].hp = player_list[pN].hp - damage
+        updatePlayerHealth(pN)
+        if player_list[pN].hp <= 0 then
+            particle_x = player_list[pN].x
+            particle_y = player_list[pN].y
+            for i = 1, 5 do
+                tfm.exec.displayParticle(3, particle_x, particle_y, math.random(-3, 3), math.random(-7, -1), 0, 0.5)
+                tfm.exec.displayParticle(4, particle_x, particle_y, math.random(-3, 3), math.random(-7, -1), 0, 0.5)
+            end
+            tfm.exec.killPlayer(pN)
+            return
+        end
+        if updater ~= nil then
+            for i = 1, damage do
+                local x = 109 + player_list[pN].hp * 39
+                addGlobalAnimation(x, 79, global_animation_id.player_damage, pN, "~1")
+                x = x + 39
+            end
+        end
+        tfm.exec.freezePlayer(pN, true, false)
+        player_list[pN].freeze_timer = 2
+    end
+end
+
+function healPlayer(pN, heal)
+    if player_list[pN].hp < player_list[pN].max_hp then
+        if updater ~= nil then
+            for i = 1, heal do
+                local x = 108 + player_list[pN].hp * 39
+                addGlobalAnimation(x, 78, global_animation_id.player_heal, pN, "~1")
+                x = x + 39
+            end
+        end
+        player_list[pN].hp = player_list[pN].hp + heal
+        if player_list[pN].hp > player_list[pN].max_hp then
+            player_list[pN].hp = player_list[pN].max_hp
+        end
+        updatePlayerHealth(pN)
+    end
+end
+
+function updatePlayerHealth(pN)
+    for _,v in pairs(player_list[pN].health_images) do
+        tfm.exec.removeImage(v)
+    end
+    local x = 94
+    local hp = player_list[pN].hp
+    for i = 1, player_list[pN].max_hp do
+        if i <= hp then
+            table.insert(player_list[pN].health_images, tfm.exec.addImage("19a4f4b0289.png", ":1", x, 70, pN))
+        else
+            table.insert(player_list[pN].health_images, tfm.exec.addImage("19a4f4cb4a0.png", ":1", x, 70, pN))
+        end
+        x = x + 39
+    end
+end
+
+function returnNearestPlayer(x, y, x1, y1, x2, y2)
+    local nearest = nil
+    local n = math.huge
+    for pN,v in pairs(player_list) do
+        if tfm.get.room.playerList[pN].isDead == false and v.x >= x1 and v.x <= x2 and v.y >= y1 and v.y <= y2 then
+            local distance = math.abs(x - v.x) + math.abs(y - v.y)
+            if distance < n then
+                nearest = pN
+                n = distance
+            end
+        end
+    end
+    return nearest
+end
+
+function playerPositionLoop(pN)
+    local plus_x = 0
+    if math.abs(tfm.get.room.playerList[pN].vx) > 3 then
+        plus_x = 50 * (player_list[pN].facing_left and -1 or 1)
+    end
+    player_list[pN].x = tfm.get.room.playerList[pN].x + tfm.get.room.playerList[pN].vx + plus_x
+    player_list[pN].y = tfm.get.room.playerList[pN].y + tfm.get.room.playerList[pN].vy
+end
+
+function enemyPositionLoop(enemy)
+    local id = enemy_list[enemy].hitbox_id
+    local plus_x = 0
+    local vx = tfm.get.room.objectList[id].vx
+    if math.abs(vx) > 3 then
+        plus_x = 50 * (vx < 0 and -1 or 1)
+    end
+    enemy_list[enemy].x = tfm.get.room.objectList[id].x + vx + plus_x
+    enemy_list[enemy].y = tfm.get.room.objectList[id].y + tfm.get.room.objectList[id].vy
+end
+
+function myAddShamanObject(object_type, x, y, vx, vy, to_despawn, event)
+    local id = tfm.exec.addShamanObject(object_type, x, y, 0, vx, vy, false, event ~= nil and {contactListener = true} or nil)
+    shaman_object_list[id] = {to_despawn = to_despawn, event = event}
+end
+
+function addProjectileObject(object_type, image, x, y, sx, sy, vx, vy, damping, ground_collision, mice_collision, to_despawn, event)
+    tfm.exec.addPhysicObject(PROJECTILE_ID, x, y, {type = object_type, restitution = 0.2, friction = 0.3, width = sx, height = sy, dynamic = true, linearDamping = damping, groundCollision = ground_collision, miceCollision = mice_collision, contactListener = (event ~= nil and true or nil)})
+    tfm.exec.movePhysicObject(PROJECTILE_ID, 0, 0, true, vx, vy, false)
+    if image ~= nil then
+        tfm.exec.addImage(image, "+"..PROJECTILE_ID, 0, 0, nil, 1, 1, 0, 1, 0.5, 0.5)
+    end
+    object_projectile_list[PROJECTILE_ID] = {to_despawn = to_despawn, event = event}
+    PROJECTILE_ID = PROJECTILE_ID + 1
+end
+
+function shamanObjectLoop()
+    local despawning = {}
+    for i,v in pairs(shaman_object_list) do
+        v.to_despawn = v.to_despawn - 1
+        if v.to_despawn == 0 then
+            tfm.exec.playSound("bouboum/x_explosion_2.mp3", 100)
+            despawning[i] = true
+        end
+    end
+    for i in pairs(despawning) do
+        local x = tfm.get.room.objectList[i].x
+        local y = tfm.get.room.objectList[i].y
+        tfm.exec.removeObject(i)
+        for i = 1, 6 do
+            tfm.exec.displayParticle(21, x, y, math.random(-300, 300) * 0.01, math.random(-400, -200) * 0.01, 0, 0.4)
+            tfm.exec.displayParticle(2, x, y, math.random(-300, 300) * 0.01, math.random(-400, -200) * 0.01, 0, 0.4)
+        end
+        shaman_object_list[i] = nil
+    end
+end
+
+function projectileObjectLoop()
+    local despawning = {}
+    for i,v in pairs(object_projectile_list) do
+        v.to_despawn = v.to_despawn - 1
+        if v.to_despawn == 0 then
+            despawning[i] = true
+        end
+    end
+    for i in pairs(despawning) do
+        tfm.exec.removePhysicObject(i)
+        object_projectile_list[i] = nil
+    end
+end
+
+function addGlobalAnimation(x, y, animation, player, target)
+    if updater ~= nil then
+        target = target or "!1"
+        table.insert(global_animation_list, {x = x, y = y, frame = 0, player = player, target = target, image = tfm.exec.addImage(global_animations[animation][1], target, x, y, player, 1, 1, 0, 1, 0.5, 0.5), animation_data = global_animations[animation], size = #global_animations[animation]})
+    end
+end
+
+function removeGlobalAnimations()
+    for i,v in pairs(global_animation_list) do
+        tfm.exec.removeImage(v.image, true)
+    end
+    global_animation_list = {}
+end
+
+function updateGlobalAnimations()
+    local remove = {}
+    for i,v in pairs(global_animation_list) do
+        v.frame = v.frame + 1
+        tfm.exec.removeImage(v.image)
+        v.image = tfm.exec.addImage(v.animation_data[v.frame], v.target, v.x, v.y, v.player, 1, 1, 0, 1, 0.5, 0.5)
+        if v.frame == v.size then
+            table.insert(remove, 1, i)
+        end
+    end
+    for _,v in pairs(remove) do
+        tfm.exec.removeImage(global_animation_list[v].image, true)
+        table.remove(global_animation_list, v)
+    end
+end
+
+function playerLoop(pN, player_data)
+    if player_data.freeze_timer > 0 then
+        player_data.freeze_timer = player_data.freeze_timer - 1
+        if player_data.freeze_timer == 0 then
+            tfm.exec.freezePlayer(pN, false)
+        end
+    end
+    if player_data.dash_timer > 0 then
+        player_data.dash_timer = player_data.dash_timer - 1
+    end
+
+    if player_data.respawning_timer > 0 then
+        player_data.respawning_timer = player_data.respawning_timer - 1
+        if player_data.respawning_timer == 0 then
+            playerRespawn(pN)
+            tfm.exec.removeImage(player_data.respawning_image, true)
+        end
+    end
+
+    if player_data.start_timer > 0 then
+        player_data.start_timer = player_data.start_timer - 1
+    end
+
+    if player_data.focus == true then
+        focusUpdate(pN)
+    end
+end
+
+function playerRespawn(pN)
+    player_list[pN].hp = player_list[pN].max_hp
+    player_list[pN].mana = 0
+    updatePlayerHealth(pN)
+    updatePlayerMana(pN)
+    tfm.exec.respawnPlayer(pN)
+end
+
+function focusUpdate(pN)
+    local x = player_list[pN].x
+    local y = player_list[pN].y
+    for i = 1, 3 do
+        tfm.exec.displayParticle(0, x + math.random(-15, 15), y + 15, 0, math.random(-3, -1), 0, 0.1)
+        tfm.exec.displayParticle(4, x + math.random(-15, 15), y + 15, 0, math.random(-3, -1), 0, 0.1)
+    end
+    player_list[pN].focus_timer = player_list[pN].focus_timer + 1
+    tfm.exec.playSound("tfmadv/fleche-debut.mp3", 90, nil, nil, pN)
+    removePlayerMana(pN, 1)
+    if player_list[pN].focus_timer == 4 then
+        player_list[pN].focus_timer = 0
+        tfm.exec.playSound("tfmadv/sel.mp3", 100, nil, nil, pN)
+        healPlayer(pN, 1)
+        tfm.exec.displayParticle(36, x, y, 0, -1, 0, 0.1)
+    end
+    if player_list[pN].mana == 0 then
+        stopPlayerFocus(pN)
+    end
+end
+
+function stopPlayerFocus(pN)
+    if player_list[pN].focus == true then
+        player_list[pN].focus = false
+        player_list[pN].focus_timer = 0
+        tfm.exec.playEmote(pN, 9)
+        local x = player_list[pN].x
+        local y = player_list[pN].y
+        for i = 1, 5 do
+            tfm.exec.displayParticle(0, x, y + 15, math.random(-10, 10), math.random(-2, -1), 0, 0.3)
+            tfm.exec.displayParticle(4, x, y + 15, math.random(-10, 10), math.random(-2, -1), 0, 0.3)
+        end
+    end
+end
+
+function playerDash(pN, x, y)
+    player_list[pN].dash_timer = 3
+    tfm.exec.playSound("tfmadv/gaz.mp3", 70, nil, nil, pN)
+    tfm.exec.playEmote(pN, 8)
+    local facing_modifier = (player_list[pN].facing_left == true and -1 or 1)
+    local sx = 100
+    local sy = -30
+    if player_list[pN].facing_up == true then
+        sx = 20
+        sy = -90
+        player_list[pN].dash_timer = 5
+    elseif player_list[pN].facing_down == true then
+        sx = 20
+        sy = 90
+        player_list[pN].dash_timer = 5
+    end
+    tfm.exec.movePlayer(pN, 0, 0, true, sx * facing_modifier, sy, false)
+    for i = 1, 3 do
+        tfm.exec.displayParticle(0, x, y, math.random(100, 300) * 0.01 * -facing_modifier, math.random(-3, 3), 0, 0.1)
+        tfm.exec.displayParticle(4, x, y, math.random(100, 300) * 0.01 * -facing_modifier, math.random(-3, 3), 0, 0.1)
+    end
+end
+
+function givePlayerMana(pN, mana)
+    if player_list[pN].mana < player_list[pN].max_mana then
+        player_list[pN].mana = player_list[pN].mana + mana
+        if player_list[pN].mana > player_list[pN].max_mana then
+            player_list[pN].mana = player_list[pN].max_mana
+        end
+        updatePlayerMana(pN)
+        tfm.exec.removeImage(tfm.exec.addImage("19a4fb4452d.png", "~1", 12, 56, pN, 0.85, 0.85, 0, 0.75), true)
+    end
+end
+
+function removePlayerMana(pN, remove)
+    player_list[pN].mana = player_list[pN].mana - remove
+    if player_list[pN].mana < 0 then
+        player_list[pN].mana = 0
+    end
+    updatePlayerMana(pN)
+end
+
+function updatePlayerMana(pN)
+    local i = math.floor((player_list[pN].mana / player_list[pN].max_mana) * 12) + 1
+    tfm.exec.removeImage(player_list[pN].mana_image)
+    player_list[pN].mana_image = tfm.exec.addImage(mana_images[i], "~1", 12, 56, pN, 0.85, 0.85)
+end
+
+function myStartMap(map)
+    current_map = {
+        loop_timer = 5,
+        id = map,
+    }
+    local map_data = maps[map]
+    if map_data.fast_update_area ~= nil then
+        setUpdateArea(map_data.fast_update_area.x, map_data.fast_update_area.y, map_data.fast_update_area.sx, map_data.fast_update_area.sy, 2)
+    else
+        removeUpdaterArea()
+    end
+    tfm.exec.newGame(map_data.XML)
+    maps[current_map.id].start_function()
+    updateMapImages()
+end
+
+function updateMap(pN)
+    if current_map ~= nil then
+        updateMapImages(pN)
+        if maps[current_map.id].player_joined_function ~= nil then
+            maps[current_map.id].player_joined_function(pN)
+        end
+    end
+end
+
+function updateMapImages(pN)
+    for _,v in pairs(maps[current_map.id].bg) do
+        tfm.exec.addImage(v.image, "?1", v.x, v.y, pN)
+    end
+    for _,v in pairs(maps[current_map.id].fg) do
+        tfm.exec.addImage(v.image, "!1", v.x, v.y, pN)
+    end
+end
+
+function mapLoop()
+    if current_map ~= nil and maps[current_map.id].loop_function ~= nil then
+        if current_map.loop_timer == 0 then
+            maps[current_map.id].loop_function()
+        else
+            current_map.loop_timer = current_map.loop_timer - 1
+        end
+    end
+end
+
+function startRespawning(pN)
+    player_list[pN].respawning_timer = 2
+    player_list[pN].respawning_image = tfm.exec.addImage("18703930668.jpg", "&1", 400, 200, pN, 20, 20, 0, 1, 0.5, 0.5, true)
+end
+
+function musicLoop()
+    tfm.exec.stopMusic("musique")
+end
+
+function playMainMusic(pN)
+    for i,v in pairs(main_music) do
+        tfm.exec.playMusic(v.music, i, v.volume, true, true, pN)
+    end
+end
+
+function myPlayMusic(pN)
+    if is_special_music == false then
+        playMainMusic(pN)
+    else
+        for i,v in pairs(special_music) do
+            tfm.exec.playMusic(v.music, i, v.volume, true, true, pN)
+        end
+    end
+end
+
+function setSpecialMusic(music_data)
+    for i,v in pairs(special_music) do
+        tfm.exec.stopMusic(i)
+    end
+    special_music = {}
+    is_special_music = false
+    if music_data ~= nil then
+        is_special_music = true
+        for i,v in pairs(music_data) do
+            table.insert(special_music, {music = v.music, volume = v.volume})
+        end
+    end
+    myPlayMusic()
+end
+
+function setMainMusic(music_data)
+    if is_special_music == false then
+        for i,v in pairs(main_music) do
+            tfm.exec.stopMusic(i)
+        end
+    end
+    main_music = {}
+    if music_data ~= nil then
+        for i,v in pairs(music_data) do
+            table.insert(main_music, {music = v.music, volume = v.volume})
+        end
+    end
+    if is_special_music == false then
+        playMainMusic()
+    end
+end
+
+function shallowcopy(t)
+    local copy = {}
+    for i,v in pairs(t) do
+        copy[i] = v
+    end
+    return copy
+end
+
+--[[bonus fast update area]]--
+function setUpdateArea(x, y, size_x, size_y, slowdown)
+    slowdown = slowdown or 1
+    if slowdown < 1 then
+        slowdown = 1
+    end
+    update_area.x = x
+    update_area.y = y
+    update_area.size_x = size_x
+    update_area.size_y = size_y
+    update_area.slowdown = slowdown
+    setUpdater()
+end
+
+function removeUpdaterArea()
+    updater = nil
+    next_updater_check = 0
+    removeUpdaterBonuses()
+end
+
+function setUpdater()
+    next_updater_check = 0
+    updater = nil
+    for pN,v in pairs(player_list) do
+        if tfm.get.room.playerList[pN].isDead == false and v.x > update_area.x and v.x < update_area.x + update_area.size_x and v.y > update_area.y and v.y < update_area.y + update_area.size_y then
+            updater = pN
+            break
+        end
+    end
+    if updater == nil then
+        removeGlobalAnimations()
+        removeUpdaterBonuses()
+        next_updater_check = 5
+    else
+        addUpdaterBonuses(update_area.x, update_area.y, update_area.size_x, update_area.size_y)
+    end
+end
+
+function removeUpdaterBonuses()
+    for i in pairs(loop_bonuses) do
+        tfm.exec.removeBonus(i)
+    end
+    loop_bonuses = {}
+end
+
+function addUpdaterBonuses(x, y, size_x, size_y)
+    removeUpdaterBonuses()
+    local plus_x = 6.5
+    for i = y, y + size_y, 25 do
+        if plus_x == 6.5 then
+            plus_x = -6.5
+        else
+            plus_x = 6.5
+        end
+        for j = x, x + size_x, 25 do
+            loop_bonuses[BONUS_ID] = {x = j + plus_x, y = i}
+            tfm.exec.addBonus(0, j + plus_x, i, BONUS_ID, nil, debug, updater)
+            BONUS_ID = BONUS_ID + 1
+        end
+    end
+end
+
+function newUpdaterIfNeeded(pN)
+    if pN == updater then
+        setUpdater()
+    end
+end
+
+function setUpdaterLoop()
+    if next_updater_check > 0 then
+        next_updater_check = next_updater_check - 1
+        if next_updater_check == 0 then
+            setUpdater()
+        end
+    end
+end
+
+function fpsLoop()
+    ui.addTextArea(0, "fps: ~"..fps, nil, 2, 22, 75, nil, 0x000001, 0x4FC545, 1, true)
+    fps = 0
+    ui.addTextArea(1, "updater: "..tostring(updater), nil, 2, 82, 150, nil, 0x000001, 0x4FC545, 1, true)
+end
+
+--[[NPC speak]]--
+function textBox(pN, id, x, y, size_x, text, name, name_color, chat_message)
+    if player_list[pN].text_boxes[id] then
+        removeTextBox(pN, id)
+    end
+    tfm.exec.playSound("cite18/emote0.mp3", 80, nil, nil, pN)
+    player_list[pN].text_boxes[id] = {text = 0, images = {}}
+    local size_y = 9
+    local char_size_x = size_x / 6.8
+    local text_size_len = name:len() + text:len() + 1
+    local final_text = "<font color='#"..name_color.."'>"..name..":</font>"
+    local temp_size = name:len() + 1
+    for arg in text:gmatch("[^%s]+") do
+        local arg_len = arg:len()
+		temp_size = temp_size + arg_len
+        if temp_size > char_size_x then
+            temp_size = arg_len
+            final_text = final_text.."\n"
+            size_y = size_y + 13
+        else
+            final_text = final_text.." "
+        end
+        final_text = final_text..arg
+	end
+    if text_size_len < char_size_x then
+        char_size_x = text_size_len
+    end
+    size_x = math.floor(char_size_x * 6.8)
+
+    x = x - math.floor(size_x * 0.5)
+    y = y - size_y - 21
+    player_list[pN].text_boxes[id].images = {
+        tfm.exec.addImage("18683a5366c.png", "!1", x, y, pN, 1, 1, 0, 0.7),
+        tfm.exec.addImage("18683a54f26.png", "!1", x, y + 6 + size_y, pN, 1, 1, 0, 0.7),
+        tfm.exec.addImage("18683a56c7c.png", "!1", x + 6 + size_x, y, pN, 1, 1, 0, 0.7),
+        tfm.exec.addImage("18683a585a8.png", "!1", x + 6 + size_x, y + 6 + size_y, pN, 1, 1, 0, 0.7),
+        tfm.exec.addImage("18683a5a352.png", "!1", x + 6, y, pN, size_x, size_y + 12, 0, 0.7),
+        tfm.exec.addImage("18683a5a352.png", "!1", x, y + 6, pN, 6, size_y, 0, 0.7),
+        tfm.exec.addImage("18683a5a352.png", "!1", x + 6 + size_x, y + 6, pN, 6, size_y, 0, 0.7),
+    }
+    ui.addTextArea(player_list[pN].text_box_id, "<p align='center'>"..final_text, pN, x - 22, y + 2, size_x + 55, pN, 0x000001, 0x000001, 0, false)
+    if chat_message then
+        tfm.exec.chatMessage("<V>["..name.."]</V> "..text, pN)
+    end
+    player_list[pN].text_boxes[id].text = player_list[pN].text_box_id
+    player_list[pN].text_box_id = player_list[pN].text_box_id + 1
+    if player_list[pN].text_box_id == 11000 then
+        player_list[pN].text_box_id = 10000
+    end
+end
+
+function removeTextBox(pN, id)
+    removeTextBoxUI(pN, id)
+    player_list[pN].text_boxes[id] = nil
+end
+
+function removeAllTextBoxes(pN)
+    for id in pairs(player_list[pN].text_boxes) do
+        removeTextBoxUI(pN, id)
+    end
+    player_list[pN].text_boxes = {}
+end
+
+function removeTextBoxUI(pN, id)
+    ui.removeTextArea(player_list[pN].text_boxes[id].text, pN)
+    for _,i in pairs(player_list[pN].text_boxes[id].images) do
+        tfm.exec.removeImage(i)
+    end
+end
+
+--[[Start]]--
+setMainMusic({{music = "cite18/musique/jungle1.mp3", volume = 100}})
+for pN in pairs(tfm.get.room.playerList) do
+    eventNewPlayer(pN)
+end
+myStartMap(1)
