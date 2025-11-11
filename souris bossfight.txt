@@ -42,6 +42,7 @@ local translations = {
         "...",
         "Jak chceš, nechť tvá cesta skončí přímo tu, lakomče.",
         "Tlačítkem C uděláš velký skok.\nTlačítkem X útočíš.\nPodržením tlačítka V se vyléčíš.",
+        "<J>Evil Souris</J> <font color='#FF2DF2'>vytvořil Hufdasr#0000</font>",
     },
     ["en"] = {
         "Surrender, stranger! The great *Souris_18f2 is standing in your way!",
@@ -50,12 +51,13 @@ local translations = {
         "...",
         "As you wish, may your journey end right here, miser.",
         "Press the C button to make a long jump.\nPress the X button to attack.\nHold the V button to heal.",
+        "<J>Evil Souris</J> <font color='#FF2DF2'>by Hufdasr#0000</font>",
     },
 }
 
 local community = tfm.get.room.name:sub(1, 2)
 if tfm.get.room.name == "*Hvezdokupa" then
-    community = "en"--"cs"
+    community = "cs"
 elseif translations[community] == nil then
     community = main_community
 end
@@ -275,6 +277,7 @@ local current_map = nil
 local main_music = {}
 local special_music = {}
 local is_special_music = false
+local map_name = translations[community][7]
 local maps = {
     [1] = {
         XML = '<C><P L="2400" MEDATA=";;;;-0;0:::1-"/><Z><S><S T="12" X="896" Y="-103" L="2000" H="209" P="0,0,0.3,0.2,0,0,0,0" o="6A7495" N=""/><S T="12" X="-103" Y="210" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2504" Y="233" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2144" Y="-103" L="724" H="209" P="0,0,0.3,0.2,180,0,0,0" o="6A7495" N=""/><S T="12" X="2157" Y="375" L="477" H="142" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2072" Y="323" L="303" H="102" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2269" Y="138" L="295" H="64" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1831" Y="106" L="356" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1730" Y="402" L="447" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1554" Y="330" L="96" H="163" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1582" Y="256" L="150" H="18" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1610" Y="267" L="41" H="19" P="0,0,0.3,0.2,-30,0,0,0" o="324650" m=""/><S T="12" X="1542" Y="90" L="67" H="198" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1376" Y="334" L="35" H="168" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1147" Y="349" L="137" H="126" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1109" Y="76" L="60" H="174" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="1231" Y="5" L="331" H="175" P="0,0,0,0,-30,0,0,0" o="324650" m=""/><S T="12" X="1896" Y="347" L="60" H="68" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="239" Y="132" L="87" H="279" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="90" Y="103" L="361" H="84" P="0,0,0.3,0.2,25,0,0,0" o="324650" m=""/><S T="12" X="104" Y="52" L="259" H="174" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="536" Y="409" L="1117" H="38" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1557" Y="199" L="37" H="34" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/></S><D><DS X="2362" Y="285"/></D><O/><L/></Z></C>',
@@ -407,6 +410,7 @@ local update_area = {
 
 --[[TFM Functions]]--
 function eventNewPlayer(pN)
+    updateMapName()
     player_list[pN] = {
         text_box_id = 10000, -- 10 000 až 10 999 id pro texty NPC
         text_boxes = {},
@@ -430,7 +434,7 @@ function eventNewPlayer(pN)
         last_damage = 0,
         respawning_timer = 0,
         respawning_image = nil,
-        start_timer = 3,
+        start_timer = 5,
     }
 
     for _,k in pairs({0, 1, 2, 3, 86, 67, 88}) do
@@ -569,11 +573,12 @@ function eventContactListener(pN, id, contactInfos)
 end
 
 function eventNewGame()
+    updateMapName()
     if updater ~= nil then
         addUpdaterBonuses(update_area.x, update_area.y, update_area.size_x, update_area.size_y)
     end
     for pN,v in pairs(player_list) do
-        v.start_timer = 3
+        v.start_timer = 5
     end
 end
 
@@ -1286,6 +1291,10 @@ function setMainMusic(music_data)
     if is_special_music == false then
         playMainMusic()
     end
+end
+
+function updateMapName()
+    ui.setMapName(map_name)
 end
 
 function shallowcopy(t)
