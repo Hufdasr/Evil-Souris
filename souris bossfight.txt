@@ -6,6 +6,7 @@ end
 --[[Settings]]--
 local main_community = "en"
 local debug = false
+local flexible_health = true -- number of lives of bosses will change based on the number of mice in the room
 
 --[[Enums]]--
 local enemy_id = {
@@ -152,6 +153,7 @@ local enemies = {
                             removeEnemy(enemy)
                             return
                         end
+                        enemy_data.jump_attack_timer = 0
                         local r = math.random(1, 5)
                         if r == 1 or r == 2 then
                             local jump_target = enemy_data.area_x2 - 50
@@ -258,7 +260,9 @@ local enemies = {
             end
         end,
         hp = 600,
-        stun = {500, 300, 100},
+        flexible_health = true,
+        stun = {0.83, 0.5, 0.17},
+        knockback_modifier = 0,
         immortal = true,
         dead_image = "19a4f42fa16.png",
         animations = {
@@ -280,7 +284,7 @@ local is_special_music = false
 local map_name = translations[community][7]
 local maps = {
     [1] = {
-        XML = '<C><P L="2400" MEDATA=";;;;-0;0:::1-"/><Z><S><S T="12" X="896" Y="-103" L="2000" H="209" P="0,0,0.3,0.2,0,0,0,0" o="6A7495" N=""/><S T="12" X="-103" Y="210" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2504" Y="233" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2144" Y="-103" L="724" H="209" P="0,0,0.3,0.2,180,0,0,0" o="6A7495" N=""/><S T="12" X="2157" Y="375" L="477" H="142" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2072" Y="323" L="303" H="102" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2269" Y="138" L="295" H="64" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1831" Y="106" L="356" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1730" Y="402" L="447" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1554" Y="330" L="96" H="163" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1582" Y="256" L="150" H="18" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1610" Y="267" L="41" H="19" P="0,0,0.3,0.2,-30,0,0,0" o="324650" m=""/><S T="12" X="1542" Y="90" L="67" H="198" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1376" Y="334" L="35" H="168" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1147" Y="349" L="137" H="126" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1109" Y="76" L="60" H="174" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="1231" Y="5" L="331" H="175" P="0,0,0,0,-30,0,0,0" o="324650" m=""/><S T="12" X="1896" Y="347" L="60" H="68" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="239" Y="132" L="87" H="279" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="90" Y="103" L="361" H="84" P="0,0,0.3,0.2,25,0,0,0" o="324650" m=""/><S T="12" X="104" Y="52" L="259" H="174" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="536" Y="409" L="1117" H="38" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1557" Y="199" L="37" H="34" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/></S><D><DS X="2362" Y="285"/></D><O/><L/></Z></C>',
+        XML = '<C><P L="2400" MEDATA=";;;;-0;0:::1-"/><Z><S><S T="12" X="896" Y="-103" L="2000" H="209" P="0,0,0.3,0.2,0,0,0,0" o="6A7495" N=""/><S T="12" X="-103" Y="210" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2504" Y="233" L="724" H="209" P="0,0,0.3,0.2,90,0,0,0" o="6A7495" N=""/><S T="12" X="2144" Y="-103" L="724" H="209" P="0,0,0.3,0.2,180,0,0,0" o="6A7495" N=""/><S T="12" X="2157" Y="375" L="477" H="142" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2072" Y="323" L="303" H="102" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="2269" Y="138" L="295" H="64" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1831" Y="106" L="356" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1730" Y="402" L="447" H="62" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1554" Y="330" L="96" H="163" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1582" Y="256" L="150" H="18" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1610" Y="267" L="41" H="19" P="0,0,0.3,0.2,-30,0,0,0" o="324650" m=""/><S T="12" X="1542" Y="90" L="67" H="198" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1376" Y="334" L="35" H="168" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1147" Y="349" L="137" H="126" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1109" Y="76" L="60" H="174" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="1231" Y="5" L="331" H="175" P="0,0,0,0,-30,0,0,0" o="324650" m=""/><S T="12" X="1896" Y="347" L="60" H="68" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="239" Y="132" L="87" H="279" P="0,0,0,0,0,0,0,0" o="324650" m=""/><S T="12" X="90" Y="103" L="361" H="84" P="0,0,0.3,0.2,25,0,0,0" o="324650" m=""/><S T="12" X="104" Y="52" L="259" H="174" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="536" Y="409" L="1117" H="38" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="1557" Y="199" L="37" H="34" P="0,0,0.3,0.2,0,0,0,0" o="324650" m=""/><S T="12" X="925" Y="504" L="2000" H="209" P="0,0,0.3,0.2,0,0,0,0" o="6A7495" c="4" N=""/><S T="12" X="2281" Y="504" L="902" H="209" P="0,0,0.3,0.2,0,0,0,0" o="6A7495" c="4" N=""/></S><D><DS X="2362" Y="290"/></D><O/><L/></Z></C>',
         bg = {{image = "19a537970ea.png", x = 0, y = 0}},
         fg = {{image = "19a53798bb4.png", x = 0, y = 0}},
         fast_update_area = {x = 282, y = 0, sx = 800, sy = 400},
@@ -596,8 +600,10 @@ function summonEnemy(enemy_type, x, y, additional_info, area_x1, area_y1, area_x
         area_x2 = area_x2,
         area_y1 = area_y1,
         area_y2 = area_y2,
+        max_hp = enemy_data.hp,
         hp = enemy_data.hp,
         stun = shallowcopy(enemy_data.stun),
+        knockback_modifier = enemy_data.knockback_modifier or 1,
         phase = 1,
         hitbox_id = nil,
         fast_update_function = enemy_data.fast_update_function,
@@ -613,6 +619,20 @@ function summonEnemy(enemy_type, x, y, additional_info, area_x1, area_y1, area_x
         fail_function = fail_function,
         additional_info = shallowcopy(additional_info),
     }
+
+    if flexible_health == true and enemy_data.flexible_health ~= nil and enemy_data.flexible_health == true then
+        local player_count = 0
+        for pN in pairs(player_list) do
+            if tfm.get.room.playerList[pN].isDead == false then
+                player_count = player_count + 1
+            end
+        end
+        if player_count > 3 then
+            enemy_list[ENEMY_ID].max_hp = enemy_list[ENEMY_ID].max_hp + math.floor((enemy_list[ENEMY_ID].max_hp / 4) * (player_count - 3))
+            enemy_list[ENEMY_ID].hp = enemy_list[ENEMY_ID].max_hp
+        end
+    end
+
     if enemy_data.fast_update_function ~= nil then
         table.insert(enemy_loop_list[loop_id.fast], ENEMY_ID)
         enemy_loop_list_size[loop_id.fast] = enemy_loop_list_size[loop_id.fast] + 1
@@ -824,7 +844,7 @@ function playerAttack(pN, x, y, os_time)
                 hitEnemy(v, 5, pN)
                 givePlayerMana(pN, 1)
                 if id ~= nil then
-                    tfm.exec.moveObject(id, 0, 0, true, pulse_x, pulse_y, false)
+                    tfm.exec.moveObject(id, 0, 0, true, pulse_x * enemy_data.knockback_modifier, pulse_y * enemy_data.knockback_modifier, false)
                 end
                 local particle_x = enemy_data.x
                 local particle_y = enemy_data.y
@@ -863,7 +883,7 @@ function hitEnemy(enemy, damage, attacker)
     end
 
     local stunned = false
-    while enemy_list[enemy].stun[1] ~= nil and enemy_list[enemy].hp < enemy_list[enemy].stun[1] do
+    while enemy_list[enemy].stun[1] ~= nil and enemy_list[enemy].hp < enemy_list[enemy].max_hp * enemy_list[enemy].stun[1] do
         table.remove(enemy_list[enemy].stun, 1)
         enemy_list[enemy].phase = enemy_list[enemy].phase + 1
         stunned = true
